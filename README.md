@@ -5,6 +5,7 @@ A patched build of [OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB) **1.0**
 - An ASUS Aura USB motherboard controller is sometimes not detected, or OpenRGB hangs during detection.
 - Manually set ARGB zone sizes (LED counts) are lost and must be re-entered.
 - The startup profile (`--profile`) does not apply at boot; colors only work after pressing **Rescan**.
+- Some things can only be done in the GUI (renaming, segments, automatic profiles, detectors, settings).
 - A saved profile silently skips a device (for example an ASUS ROG Azoth keyboard) even though it is in the profile.
 - Running OpenRGB as a system service under a normal user, before that user logs in.
 
@@ -29,6 +30,36 @@ A patched build of [OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB) **1.0**
 On Linux, HID devices are normally only granted to the user with an active local session (udev `uaccess`). A service running as that user starts **before** login, so every USB device is denied and the profile only reaches I2C devices such as RAM and the GPU.
 
 This fork remembers devices that returned *Permission denied* and checks them every 5 seconds. Once access is granted (you log in), it rescans and re-applies the active profile automatically. No extra udev rules are needed.
+
+### Everything from the command line
+Functions that were only available in the GUI can now be done with command-line options. When the OpenRGB service is running, these options go through it, the same way the GUI does.
+
+| Option | What it does |
+|---|---|
+| `-lx`, `--list-extended` | Devices with each mode's capabilities, zone LED ranges, sizes and segments |
+| `--direction left\|right\|up\|down\|horizontal\|vertical\|up-left\|...` | Sets the direction of the selected mode |
+| `--led 0,3,5-9` | Colors only those LEDs with `--color` (numbers relative to `--zone`) |
+| `--save-to-device` | Saves the applied mode to the device's memory (GUI "Save to Device") |
+| `--rename-device "name"` / `--rename-zone "name"` | Custom device or zone name (`""` restores the original) |
+| `--segments "Fan 1:21,Fan 2:21"` | Replaces the segments of a zone (`""` clears them) |
+| `--rescan` | Rescans devices (in the running service) |
+| `--delete-profile name` / `--rename-profile old new` | Profile management |
+| `--list-auto-profiles` / `--auto-profile event name\|off` | Profile loaded on service-startup, service-shutdown, open, exit, suspend, resume |
+| `--list-detectors [filter]` / `--enable-detector` / `--disable-detector` | Device detectors (GUI "Supported Devices") |
+| `--list-settings` / `--get-setting section[.option]` / `--set-setting section.option value` | Any option of the GUI Settings tab |
+
+Examples:
+
+```bash
+# Red on LEDs 0-9 of zone 1 of device 3, keep the rest
+openrgb -d 3 -z 1 --led 0-9 -c FF0000
+
+# Name the three ARGB headers and split one into fans
+openrgb -d 3 -z 1 --rename-zone "Front fans" && openrgb -d 3 -z 1 --segments "Fan 1:21,Fan 2:21,Fan 3:21"
+
+# Load "Red" automatically when the service starts
+openrgb --auto-profile service-startup Red
+```
 
 ### Always-on debug log
 Writes `~/.config/OpenRGB/OpenRGB-debug.log` regardless of log level. It records the user and session state, the permissions of every `/dev/hidraw*` node, detection results, Aura USB traffic, and how each profile was applied, including why a device did not match. The file rotates to `.old` at 10 MB.

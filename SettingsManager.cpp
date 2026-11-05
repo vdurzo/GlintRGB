@@ -252,7 +252,15 @@ void SettingsManager::ModifySettings(std::string settings_key, json new_settings
     {
         mutex.lock();
         json filtered_settings = FilterSettingsAgainstSchema(settings_key, new_settings);
-        settings_data[settings_key].update(filtered_settings, true);
+
+        /*-------------------------------------------------*\
+        | If every key was filtered out the result is null, |
+        | and update() with null throws and aborts          |
+        \*-------------------------------------------------*/
+        if(filtered_settings.is_object())
+        {
+            settings_data[settings_key].update(filtered_settings, true);
+        }
         mutex.unlock();
     }
 
