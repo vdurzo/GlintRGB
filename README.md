@@ -4,6 +4,8 @@ A patched build of [OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB) **1.0**
 
 > Not affiliated with the official OpenRGB project. All changes are on top of the `release_1.0` tag. The original upstream README is kept as [README-upstream.md](README-upstream.md).
 
+> Made by [vdurzo](https://github.com/vdurzo) with the help of Claude (Anthropic).
+
 > **Platform:** built and tested on **Linux only**. The debug log uses Linux/POSIX clock functions, so the Windows build will most likely not compile without changes.
 
 ## Contents
@@ -180,6 +182,9 @@ Requires Qt 6, hidapi, libusb and mbedtls 3.x.
 - The CLI options were also tested with OpenRGB's debug devices, both standalone and through a running service
 
 Other Aura USB devices use the same code paths, but I have not tested them.
+
+## Credits
+These fixes and the CLI work were done by [vdurzo](https://github.com/vdurzo) with the help of Claude (Anthropic), working from the debug logs and tests on real hardware.
 
 ## License
 GPL-2.0-or-later, same as upstream OpenRGB.
