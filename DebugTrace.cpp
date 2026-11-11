@@ -10,10 +10,12 @@
 
 #include <cerrno>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <chrono>
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -22,6 +24,12 @@
 #include "DebugTrace.h"
 #include "filesystem.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #ifdef __linux__
 #include <dirent.h>
 #include <pwd.h>
@@ -29,7 +37,6 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
-#include <unistd.h>
 #endif
 
 /*---------------------------------------------------------*\
@@ -60,30 +67,76 @@ static const char* debugtrace_level_names[] =
     "DIALOG"
 };
 
-static std::string DebugTraceFilePath()
+/*---------------------------------------------------------*\
+| Directory the trace file lives in, per platform:          |
+|   Windows: %APPDATA%\OpenRGB, then %TEMP%, then "."        |
+|   others : $XDG_CONFIG_HOME/OpenRGB, then $HOME/.config/.. |
+|            then /tmp                                       |
+\*---------------------------------------------------------*/
+static std::string DebugTraceConfigDir()
 {
+#ifdef _WIN32
+    const char* appdata = getenv("APPDATA");
+
+    if(appdata != nullptr && appdata[0] != '\0')
+    {
+        return(std::string(appdata) + "\\OpenRGB");
+    }
+
+    const char* temp = getenv("TEMP");
+
+    if(temp != nullptr && temp[0] != '\0')
+    {
+        return(std::string(temp));
+    }
+
+    return(".");
+#else
     const char* xdg  = getenv("XDG_CONFIG_HOME");
     const char* home = getenv("HOME");
 
-    std::string dir;
-
     if(xdg != nullptr && xdg[0] != '\0')
     {
-        dir = std::string(xdg) + "/OpenRGB";
-    }
-    else if(home != nullptr && home[0] != '\0')
-    {
-        dir = std::string(home) + "/.config/OpenRGB";
-    }
-    else
-    {
-        dir = "/tmp";
+        return(std::string(xdg) + "/OpenRGB");
     }
 
+    if(home != nullptr && home[0] != '\0')
+    {
+        return(std::string(home) + "/.config/OpenRGB");
+    }
+
+    return("/tmp");
+#endif
+}
+
+/*---------------------------------------------------------*\
+| A writable fallback directory used when the config dir    |
+| cannot be opened                                          |
+\*---------------------------------------------------------*/
+static std::string DebugTraceFallbackDir()
+{
+#ifdef _WIN32
+    const char* temp = getenv("TEMP");
+
+    if(temp != nullptr && temp[0] != '\0')
+    {
+        return(std::string(temp));
+    }
+
+    return(".");
+#else
+    return("/tmp");
+#endif
+}
+
+static std::string DebugTraceFilePath()
+{
+    std::string     dir = DebugTraceConfigDir();
     std::error_code ec;
+
     filesystem::create_directories(filesystem::path(dir), ec);
 
-    return(dir + "/OpenRGB-debug.log");
+    return((filesystem::path(dir) / "OpenRGB-debug.log").string());
 }
 
 static FILE* DebugTraceOpen()
@@ -98,13 +151,18 @@ static FILE* DebugTraceOpen()
     std::string path = DebugTraceFilePath();
 
     /*-----------------------------------------------------*\
-    | Rotate a large existing file to .old                  |
+    | Rotate a large existing file to .old.  Remove a stale |
+    | .old first so the rename cannot fail because the      |
+    | target already exists (Windows rename does not        |
+    | overwrite).                                           |
     \*-----------------------------------------------------*/
     std::error_code ec;
     std::uintmax_t  size = filesystem::file_size(filesystem::path(path), ec);
 
     if(!ec && size > (std::uintmax_t)DEBUGTRACE_ROTATE_BYTES)
     {
+        std::error_code rm_ec;
+        filesystem::remove(filesystem::path(path + ".old"), rm_ec);
         filesystem::rename(filesystem::path(path), filesystem::path(path + ".old"), ec);
     }
 
@@ -113,9 +171,11 @@ static FILE* DebugTraceOpen()
     if(debugtrace_file == nullptr)
     {
         /*-------------------------------------------------*\
-        | Fall back to /tmp so the trace is never lost      |
+        | Fall back to a writable temp dir so the trace is  |
+        | never lost                                        |
         \*-------------------------------------------------*/
-        debugtrace_file = fopen("/tmp/OpenRGB-debug.log", "a");
+        std::string fallback = (filesystem::path(DebugTraceFallbackDir()) / "OpenRGB-debug.log").string();
+        debugtrace_file = fopen(fallback.c_str(), "a");
     }
 
     return(debugtrace_file);
@@ -126,36 +186,57 @@ static std::string DebugTracePrefix()
     char buf[128];
 
     /*-----------------------------------------------------*\
-    | Wall clock time                                       |
+    | Wall clock time (portable via std::chrono)            |
     \*-----------------------------------------------------*/
-    struct timespec rt;
-    clock_gettime(CLOCK_REALTIME, &rt);
+    std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+    std::time_t                           now_t = std::chrono::system_clock::to_time_t(now);
+    long                                  millis = (long)(std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000);
 
     struct tm local_tm;
-    localtime_r(&rt.tv_sec, &local_tm);
+
+#ifdef _WIN32
+    localtime_s(&local_tm, &now_t);
+#else
+    localtime_r(&now_t, &local_tm);
+#endif
 
     char wall[32];
     strftime(wall, sizeof(wall), "%Y-%m-%d %H:%M:%S", &local_tm);
 
     /*-----------------------------------------------------*\
-    | Seconds since boot, comparable with the kernel log    |
-    | (journalctl -o short-monotonic / dmesg)               |
+    | Seconds since boot.  On Linux this uses CLOCK_BOOTTIME |
+    | so it lines up with the kernel log                    |
+    | (journalctl -o short-monotonic / dmesg).  Elsewhere   |
+    | it is a monotonic clock since the first trace call.   |
     \*-----------------------------------------------------*/
     double since_boot = 0.0;
 
-#ifdef __linux__
+#if defined(__linux__)
     struct timespec bt;
     clock_gettime(CLOCK_BOOTTIME, &bt);
     since_boot = (double)bt.tv_sec + ((double)bt.tv_nsec / 1e9);
+#elif defined(_WIN32)
+    since_boot = (double)GetTickCount64() / 1000.0;
+#else
+    static const std::chrono::steady_clock::time_point mono_start = std::chrono::steady_clock::now();
+    since_boot = std::chrono::duration<double>(std::chrono::steady_clock::now() - mono_start).count();
+#endif
 
+    /*-----------------------------------------------------*\
+    | Process and thread id                                 |
+    \*-----------------------------------------------------*/
+#if defined(_WIN32)
+    long pid = (long)GetCurrentProcessId();
+    long tid = (long)GetCurrentThreadId();
+#elif defined(__linux__)
     long pid = (long)getpid();
     long tid = (long)syscall(SYS_gettid);
 #else
-    long pid = 0;
+    long pid = (long)getpid();
     long tid = 0;
 #endif
 
-    snprintf(buf, sizeof(buf), "%s.%03ld [boot+%10.3f] [pid %ld tid %ld] ", wall, (long)(rt.tv_nsec / 1000000), since_boot, pid, tid);
+    snprintf(buf, sizeof(buf), "%s.%03ld [boot+%10.3f] [pid %ld tid %ld] ", wall, millis, since_boot, pid, tid);
 
     return(std::string(buf));
 }

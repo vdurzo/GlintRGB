@@ -21,6 +21,7 @@
 
 #include "cli.h"
 #include "startup.h"
+#include "DebugTrace.h"
 #include "LogManager.h"
 #include "NetworkServer.h"
 #include "DetectionManager.h"
@@ -544,6 +545,11 @@ static void WaitWhileServerOnline(NetworkServer* srv)
 static int common_main(int argc, char* argv[])
 {
     unsigned int ret_flags;
+
+    /*-----------------------------------------------------*\
+    | Always-on diagnostic trace: process and arguments     |
+    \*-----------------------------------------------------*/
+    DebugTraceStartup(argc, argv);
 
     if(started_as_service)
     {

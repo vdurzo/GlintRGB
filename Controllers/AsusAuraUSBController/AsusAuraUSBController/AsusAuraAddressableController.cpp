@@ -15,6 +15,16 @@
 AuraAddressableController::AuraAddressableController(hid_device* dev_handle, const char* path, std::string dev_name) : AuraUSBController(dev_handle, path, dev_name)
 {
     /*-----------------------------------------------------*\
+    | If the config table could not be read it is all       |
+    | zeroes; don't build device info from garbage (the     |
+    | detector discards this controller afterwards anyway). |
+    \*-----------------------------------------------------*/
+    if(!config_table_valid)
+    {
+        return;
+    }
+
+    /*-----------------------------------------------------*\
     | Add addressable devices                               |
     \*-----------------------------------------------------*/
     for(int i = 0; i < config_table[0x02]; ++i)

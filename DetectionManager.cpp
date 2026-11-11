@@ -88,6 +88,7 @@ static std::mutex               permission_denied_mutex;
 static std::set<std::string>    permission_denied_paths;
 static std::atomic<bool>        permission_watch_active(false);
 static std::atomic<bool>        permission_watch_stop(false);
+static std::atomic<bool>        permission_watch_running(false);
 
 static const unsigned int       PERMISSION_WATCH_INTERVAL_MS    = 5000;
 static const unsigned int       PERMISSION_WATCH_SETTLE_MS      = 3000;
@@ -109,6 +110,24 @@ static bool PermissionWatchSleep(unsigned int ms)
 
 static void PermissionWatchThreadFunction()
 {
+    /*-----------------------------------------------------*\
+    | Mark the watcher as running for the whole lifetime of |
+    | this thread.  The guard clears both the running and   |
+    | the active flags on every exit path, so the           |
+    | destructor can wait for the thread to actually finish |
+    | before the singletons it touches are destroyed.       |
+    \*-----------------------------------------------------*/
+    struct WatchGuard
+    {
+        ~WatchGuard()
+        {
+            permission_watch_active  = false;
+            permission_watch_running = false;
+        }
+    } watch_guard;
+
+    permission_watch_running = true;
+
 #ifdef __linux__
     DebugTrace("[PERMWATCH] Watcher started, checking denied devices every %u ms", PERMISSION_WATCH_INTERVAL_MS);
 
@@ -209,8 +228,6 @@ static void PermissionWatchThreadFunction()
 
     DebugTrace("[PERMWATCH] Watcher exiting");
 #endif
-
-    permission_watch_active = false;
 }
 
 static void PermissionWatchStartIfNeeded()
@@ -392,9 +409,18 @@ DetectionManager::DetectionManager()
 DetectionManager::~DetectionManager()
 {
     /*-----------------------------------------------------*\
-    | Stop the permission watcher, if running               |
+    | Stop the permission watcher and wait for it to finish |
+    | before the singletons it uses are torn down.  It is   |
+    | detached (it re-triggers detection, which would       |
+    | deadlock a direct join), so wait on a running flag     |
+    | with a bound in case it is blocked in a rescan.       |
     \*-----------------------------------------------------*/
     permission_watch_stop = true;
+
+    for(int waited_ms = 0; permission_watch_running && waited_ms < 6000; waited_ms += 50)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
 
     /*-----------------------------------------------------*\
     | Exit HID in background thread                         |
