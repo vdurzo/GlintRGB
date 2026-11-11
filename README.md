@@ -1,4 +1,4 @@
-# OpenRGB 1.0 – Stable fork with profile, startup and Aura USB fixes, and a full CLI
+# GlintRGB — a stable Linux fork of OpenRGB 1.0 (profile, startup and Aura USB fixes, full CLI)
 
 A patched build of [OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB) **1.0** for people who stayed on 1.0 (or went back to it). It fixes profiles and zone sizes that silently stop applying, makes OpenRGB work as a Linux service that starts before you log in, fixes several ASUS Aura USB bugs, and adds command-line options for everything the GUI can do.
 
@@ -134,11 +134,11 @@ pkgver=1.0
 pkgrel=3
 pkgdesc="OpenRGB 1.0 with profile, startup and Aura USB fixes, and a full CLI"
 arch=(x86_64)
-url="https://github.com/vdurzo/OpenRGB-Stable-CLI"
+url="https://github.com/vdurzo/GlintRGB"
 license=(GPL-2.0-only)
 depends=(glibc libgcc libstdc++ qt6-base libusb hidapi mbedtls3 hicolor-icon-theme)
 makedepends=(git qt6-tools)
-source=("openrgb-src::git+https://github.com/vdurzo/OpenRGB-Stable-CLI.git#branch=fix/aura-profiles-1.0"
+source=("openrgb-src::git+https://github.com/vdurzo/GlintRGB.git#branch=fix/aura-profiles-1.0"
         60-openrgb.rules openrgb-modules.conf openrgb.service openrgb-tmpfiles.conf)
 sha256sums=(SKIP SKIP SKIP SKIP SKIP)
 
@@ -167,8 +167,8 @@ To stop pacman from replacing it on the next system update, add `openrgb` to `Ig
 ### Build from source (any Linux)
 
 ```bash
-git clone -b fix/aura-profiles-1.0 https://github.com/vdurzo/OpenRGB-Stable-CLI.git
-cd OpenRGB-Stable-CLI && mkdir build && cd build
+git clone -b fix/aura-profiles-1.0 https://github.com/vdurzo/GlintRGB.git
+cd GlintRGB && mkdir build && cd build
 qmake6 ../OpenRGB.pro PREFIX=/usr && make -j"$(nproc)"
 ```
 
